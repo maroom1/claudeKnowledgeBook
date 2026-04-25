@@ -130,3 +130,50 @@ The `/fire` endpoint is in research preview behind the `experimental-cc-routine-
 4. Does the prompt assume any local state (env vars, paths, prior conversation)? → Rewrite — the cloud session has none of it.
 5. One-off or recurring? → One-off doesn't burn the daily cap.
 6. Is the work genuinely worth the token spend each run? → A 5/day cap on Pro fills up fast.
+
+---
+
+## Worked example — clarifying billing in the moment
+
+A real exchange from the session that produced this note. Useful as a template for "how do I confirm what billing model my routines fall under?"
+
+### Input (user)
+
+> the bill is take from the credits, or does it consumes from the max subscriptions
+
+### Output (Claude)
+
+> **Subscription quota** — not API credits.
+>
+> From the official routines docs:
+>
+> > Routines draw down subscription usage the same way interactive sessions do.
+>
+> So if you're on Max, the run pulls from your Max plan's usage budget exactly like a normal Claude Code session would.
+>
+> ### Two extra rules to know
+>
+> 1. **Daily routine cap (separate from token usage):**
+>    - Pro: 5 runs/day
+>    - Max: 15 runs/day
+>    - Team/Enterprise: 25 runs/day
+>
+> 2. **One-off runs are exempt from the daily routine cap.** They still consume subscription usage like any session, but they don't count toward the per-day cap.
+>
+> The agent I just scheduled is a one-off (`run_once_at`), so:
+> - ✅ Doesn't count against your 15/day Max routine cap
+> - ✅ Bills against your Max subscription, not API credits
+> - ✅ The token cost when it fires will be small (it's just outputting a reminder, not reading repo files unless you ask it to draft the email)
+>
+> If your Max usage *is* maxed out for the window, organizations with **extra usage** enabled can keep running on metered overage; otherwise, runs get rejected until the window resets.
+>
+> ### Sources
+> - [Run prompts on a schedule — Claude Code Docs](https://code.claude.com/docs/en/web-scheduled-tasks) (the "Usage and limits" section)
+> - [Manage costs effectively — Claude Code Docs](https://code.claude.com/docs/en/costs)
+> - [Introducing routines in Claude Code — Anthropic Blog](https://claude.com/blog/introducing-routines-in-claude-code)
+
+### Why this exchange is worth keeping
+
+- Two answers blur together for new users: **"do routines bill?"** and **"do they have their own quota?"** The first is "yes, against your subscription." The second is "yes, a separate per-day count."
+- The **one-off-runs-are-exempt** rule is the highest-leverage piece of the doc — most reminders/follow-ups should use `run_once_at` to avoid burning the daily cap.
+- "Extra Usage" is the only escape hatch when you hit either limit. Worth knowing it exists *before* you hit a cap mid-incident.
