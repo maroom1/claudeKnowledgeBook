@@ -7,6 +7,7 @@ This is a knowledge base, not project code. Each document is self-contained and 
 ## Topics
 
 - [Routines — Billing & Limits](routines/billing-and-limits.md) — How scheduled remote agents are billed, daily run caps per plan, one-off run rules, GitHub/API triggers.
+- [Routines — Worked Example: Create a One-Off Reminder Routine](routines/example-create-one-off.md) — Full `RemoteTrigger.create` request and response, with every field annotated.
 
 ## Conventions
 
