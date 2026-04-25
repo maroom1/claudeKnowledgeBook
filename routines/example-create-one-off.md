@@ -1,17 +1,23 @@
 # Routines — Worked Example: Create a One-Off Reminder Routine
 
-> Captured 2026-04-25 from a real working session.
+> Captured 2026-04-25 from a working session.
 > The routine being created here is a **one-off** that fires once at a specific UTC timestamp, posts a reminder, and auto-disables.
-> Personal identifiers (account UUID, display name) are replaced with placeholders.
-> Project-specific identifiers (repo URL, branch names, app version, etc.) are kept structurally but generalized — adapt to your own project.
+> All identifiers (account UUID, trigger ID, environment ID, the v4 UUID inside `events`) are placeholders — replace them when adapting.
+> The example repo is the canonical public placeholder `octocat/hello-world`. Substitute your own when you adapt this template.
 
 ---
 
 ## The use case
 
-The user had just uploaded an Android AAB to Google Play closed testing and wanted Claude to nudge them ~6 hours later to check whether Google review had cleared and they needed to manually click "Publish."
+You shipped a staged rollout to production at 09:00 local time. The deploy ramps to 100% over six hours. You want Claude to nudge you once at 15:00 local to check error rates, latency, and rollout progress — and either give the green light to lock the rollout in or recommend a rollback.
 
-That kind of "remind me later about this state" task is a textbook fit for a one-off routine: it fires once, costs ~no tokens (small reminder output), and is exempt from the daily routine-run cap.
+That kind of *"remind me later about a state I'm waiting on"* task is a textbook fit for a one-off routine: it fires once, costs ~no tokens (small reminder output), and is exempt from the daily routine-run cap.
+
+Other shapes that fit the same pattern:
+
+- *"In 48 hours, check whether the feature flag is still healthy at 50% and either ramp it to 100% or open a rollback PR."*
+- *"On Monday at 9am, summarize the PRs merged over the weekend and post a digest."*
+- *"In 14 days, check if the experiment metrics have stabilized; if so, open a cleanup PR removing the variant."*
 
 ---
 
@@ -21,29 +27,29 @@ This is the body sent to `RemoteTrigger` with `action: "create"`. Equivalent HTT
 
 ```json
 {
-  "name": "ePatto 2.0.9 Play review status check",
-  "run_once_at": "2026-04-25T17:30:00Z",
+  "name": "Acme prod rollout — 6h post-deploy metrics check",
+  "run_once_at": "2026-04-25T19:00:00Z",
   "enabled": true,
   "job_config": {
     "ccr": {
-      "environment_id": "env_01XTfCW5ufNwiWJLkirMSY8T",
+      "environment_id": "env_01EXAMPLE1234567890ABCDEF",
       "session_context": {
         "model": "claude-sonnet-4-6",
         "sources": [
-          { "git_repository": { "url": "https://github.com/<owner>/<repo>" } }
+          { "git_repository": { "url": "https://github.com/octocat/hello-world" } }
         ],
         "allowed_tools": ["Read", "Bash", "Grep", "Glob"]
       },
       "events": [
         {
           "data": {
-            "uuid": "b7e3f2a1-4c8d-4e5f-9a6b-2c1d8e4f7a09",
+            "uuid": "a4d8e2f1-9c3b-4f5e-8a2d-1b6c7d8e9f01",
             "session_id": "",
             "type": "user",
             "parent_tool_use_id": null,
             "message": {
               "role": "user",
-              "content": "REMINDER — Android 2.0.9 / versionCode 16 Google Play review status check.\n\n[full self-contained prompt — see Field 9 below]"
+              "content": "REMINDER — Acme prod rollout, 6 hours post-deploy.\n\nContext (snapshot at deploy time, 2026-04-25 09:00 UTC):\n- Release tag v3.7.0 was rolled out via the staged-deploy pipeline at 09:00 UTC.\n- Ramp schedule: 10% → 25% → 50% → 100%, advancing every 90 minutes if error rate < 1.0%.\n- Owner: deploys@acme.example.\n- Dashboards (the user has these bookmarked, you cannot reach them): Datadog 'acme-prod-overview' and Sentry project 'acme-api'.\n\nYour job (you cannot query Datadog, Sentry, or our prod metrics yourself; do NOT pretend to):\n\n1. Output a concise reminder to the user, written as a direct nudge — not a status report. Cover:\n   - It has been ~6 hours since v3.7.0 was deployed; ramp should be at or near 100%.\n   - They should check Datadog 'acme-prod-overview' for error rate + p95 latency on /api endpoints, and Sentry 'acme-api' for any new issue groups.\n   - Three possible states and what to do for each:\n     a) Metrics healthy → confirm the rollout, post 'rollout green' in the deploy channel.\n     b) Borderline (mild regression, < 2x baseline error rate) → leave at current ramp, schedule another check in 2 hours.\n     c) Regression (> 2x baseline error rate, p95 > SLO, or new prod-impacting Sentry group) → roll back via the deploy pipeline immediately.\n\n2. After they confirm the call (state a or c), suggest they reply with the outcome so the next session can:\n   - Update CHANGELOG.md with the post-rollout status note.\n   - Close out the rollout-tracking issue.\n   - Optionally draft a short retro entry for the team wiki.\n\n3. Optionally offer to draft the 'rollout green' deploy-channel message NOW (so it's ready to paste the moment metrics check out), highlighting v3.7.0 highlights from the release tag.\n\nKeep the message short and friendly. Do NOT spend tokens reading repo files unless the user asks you to draft the message. End with a single, clear call-to-action: 'Open Datadog acme-prod-overview now.'"
             }
           }
         }
@@ -93,15 +99,15 @@ This is the body sent to `RemoteTrigger` with `action: "create"`. Equivalent HTT
 
 ---
 
-## Prompt design — what the example prompt does well
+## Prompt design — what makes the example prompt work
 
-The prompt content used in the example (truncated above as `[full self-contained prompt]`) packed five pieces into one self-contained brief:
+The prompt above packs five pieces into one self-contained brief:
 
-1. **Snapshot context.** Date and time the routine was scheduled, the exact state at scheduling time (AAB uploaded, "In review", versionCode, branch, last commit SHA). The cloud session has zero conversation memory — without this, it has nothing to reference.
-2. **Hard constraints on what the agent can/can't do.** `"You cannot log into Play Console; do NOT pretend to query it"` heads off hallucinated status reports.
-3. **A branched response.** Three concrete states (Approved / Still in review / Rejected) and the action for each. No ambiguity about what "good" output looks like.
-4. **A pre-loaded follow-up.** *"After they publish, suggest they reply with the word 'published' so the next session can…"* — primes the user to give the next conversation enough signal to update the changelog and DEVLOG without re-establishing context.
-5. **A single clear CTA.** *"End with: Open Play Console → Publishing overview now."* — bounds the output so the agent doesn't ramble.
+1. **Snapshot context.** Date/time of the deploy, the release tag, the ramp schedule, the relevant dashboards. The cloud session has zero conversation memory — without this, it has no anchor for "what state was true when the routine was scheduled."
+2. **Hard constraints on what the agent can/can't do.** *"You cannot query Datadog, Sentry, or our prod metrics yourself; do NOT pretend to"* heads off hallucinated status reports — a common failure mode for reminder agents that try to act like dashboards.
+3. **A branched response.** Three concrete states (Healthy / Borderline / Regression) with the action for each. No ambiguity about what "good" output looks like, and no need for the agent to invent a decision framework.
+4. **A pre-loaded follow-up.** *"After they confirm the call, suggest they reply with the outcome so the next session can…"* — primes the user to give the next conversation enough signal to update the changelog and close the rollout-tracking issue without re-establishing context.
+5. **A single clear CTA.** *"End with: Open Datadog acme-prod-overview now."* — bounds the output so the agent doesn't ramble.
 
 When you write your own routine prompts, treat them as **one-shot briefs to a colleague who just walked into the room**. Anything implicit in your current chat is invisible to the cloud session.
 
@@ -114,12 +120,12 @@ A successful `RemoteTrigger.create` returns HTTP 200 with the saved routine echo
 ```json
 {
   "trigger": {
-    "id": "trig_01VU9QeL8hpAtomrQdBbhibG",
-    "name": "ePatto 2.0.9 Play review status check",
+    "id": "trig_01ABCDEFGHJKLMNOPQRSTUVW",
+    "name": "Acme prod rollout — 6h post-deploy metrics check",
     "enabled": true,
     "cron_expression": "",
-    "run_once_at": "2026-04-25T17:30:00Z",
-    "next_run_at": "2026-04-25T17:30:00Z",
+    "run_once_at": "2026-04-25T19:00:00Z",
+    "next_run_at": "2026-04-25T19:00:00Z",
     "ended_reason": "",
     "persist_session": false,
     "api_token_hint": "",
